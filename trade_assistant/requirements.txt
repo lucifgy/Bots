@@ -1,0 +1,4 @@
+telethon
+pandas
+python-binance
+python-dotenv
