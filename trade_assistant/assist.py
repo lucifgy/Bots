@@ -8,6 +8,7 @@ import asyncio
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.getLogger('telethon').setLevel(logging.WARNING)  # Suppress Telethon INFO messages
 
 # Load environment variables from .env file
 load_dotenv()
@@ -88,6 +89,17 @@ async def close_position(coin):
             return "Pos was 0"
     return {}
 
+async def close_all_positions():
+    positions = await get_open_positions()
+    if positions.empty:
+        return "No open positions to close."
+    results = []
+    for index, row in positions.iterrows():
+        symbol = row['symbol']
+        result = await close_position(symbol.replace('USDT', ''))
+        results.append(result)
+    return results
+
 async def list_positions():
     positions = await get_open_positions()
     if positions.empty:
@@ -144,6 +156,13 @@ async def handle_commands(event):
             await tel_client.send_message(TEL_CHAT, "Done")
         else:
             await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'closeall':
+        results = await close_all_positions()
+        if all("orderId" in result for result in results):
+            await tel_client.send_message(TEL_CHAT, "All positions closed.")
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed to close some positions.")
 
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
