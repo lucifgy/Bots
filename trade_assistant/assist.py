@@ -115,7 +115,7 @@ async def list_positions():
 async def get_balance():
     try:
         account_info = await bi_client.futures_account()
-        margin_balance = float(account_info['totalWalletBalance'])
+        margin_balance = float(account_info['totalMarginBalance'])
         margin_ratio = float(account_info['totalMaintMargin']) / float(account_info['totalMarginBalance'])
         return margin_balance, margin_ratio
     except Exception as e:
