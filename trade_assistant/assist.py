@@ -112,6 +112,16 @@ async def list_positions():
                    f"  PnL: {round(float(row['unrealizedProfit']), 2)}\n\n")
     return result.strip()
 
+async def get_balance():
+    try:
+        account_info = await bi_client.futures_account()
+        margin_balance = float(account_info['totalWalletBalance'])
+        margin_ratio = float(account_info['totalMaintMargin']) / float(account_info['totalMarginBalance'])
+        return margin_balance, margin_ratio
+    except Exception as e:
+        logging.error(f"Error fetching balance: {e}")
+        return None, None
+
 @tel_client.on(events.NewMessage(chats=TEL_CHAT))
 async def handle_commands(event):
     if not event.message.text.startswith('/'):
@@ -163,6 +173,16 @@ async def handle_commands(event):
             await tel_client.send_message(TEL_CHAT, "All positions closed.")
         else:
             await tel_client.send_message(TEL_CHAT, "Failed to close some positions.")
+
+    elif command == 'balance':
+        margin_balance, margin_ratio = await get_balance()
+        if margin_balance is not None and margin_ratio is not None:
+            await tel_client.send_message(
+                TEL_CHAT, 
+                f"Current Margin Balance: {margin_balance}\nCurrent Margin Ratio: {margin_ratio:.2%}"
+            )
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed to fetch balance.")
 
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
