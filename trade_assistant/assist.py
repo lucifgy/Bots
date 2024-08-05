@@ -179,7 +179,7 @@ async def handle_commands(event):
         if margin_balance is not None and margin_ratio is not None:
             await tel_client.send_message(
                 TEL_CHAT, 
-                f"Current Margin Balance: {margin_balance}\nCurrent Margin Ratio: {margin_ratio:.2%}"
+                f"Margin Balance: {margin_balance:.2f}\nMargin Ratio: {margin_ratio:.2%}"
             )
         else:
             await tel_client.send_message(TEL_CHAT, "Failed to fetch balance.")
