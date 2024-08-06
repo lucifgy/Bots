@@ -66,6 +66,22 @@ async def place_order(side, symbol, amount):
         logging.error(f"Failed to place order: {e}")
         return {}
 
+async def limit_order(side, symbol, usdt_amount, price):
+    quantity = await order_quantity(usdt_amount, symbol)
+    try:
+        order = await bi_client.futures_create_order(
+            symbol=symbol,
+            type='LIMIT',
+            side=side,
+            quantity=quantity,
+            price=price,
+            timeInForce='GTC'  # Good Till Cancelled
+        )
+        return order
+    except Exception as e:
+        logging.error(f"Failed to place limit order: {e}")
+        return {}
+
 async def close_position(coin):
     positions = await get_open_positions()
     posses = positions.set_index('symbol').T.to_dict()
@@ -99,6 +115,14 @@ async def close_all_positions():
         result = await close_position(symbol.replace('USDT', ''))
         results.append(result)
     return results
+
+async def cancel_all_orders():
+    try:
+        result = await bi_client.futures_cancel_all_open_orders()
+        return result
+    except Exception as e:
+        logging.error(f"Failed to cancel orders: {e}")
+        return {}
 
 async def list_positions():
     positions = await get_open_positions()
@@ -236,9 +260,9 @@ async def handle_commands(event):
             target_price = float(msg[2])
             result = await set_take_profit(symbol, target_price)
             if "orderId" in result:
-                await tel_client.send_message(TEL_CHAT, "Take profit set")
+                await tel_client.send_message(TEL_CHAT, "Done")
             else:
-                await tel_client.send_message(TEL_CHAT, "Failed to set take profit")
+                await tel_client.send_message(TEL_CHAT, "Failed")
         except ValueError:
             await tel_client.send_message(TEL_CHAT, "Failed")
 
@@ -252,11 +276,52 @@ async def handle_commands(event):
             stop_price = float(msg[2])
             result = await set_stop_loss(symbol, stop_price)
             if "orderId" in result:
-                await tel_client.send_message(TEL_CHAT, "Stop loss set")
+                await tel_client.send_message(TEL_CHAT, "Done")
             else:
-                await tel_client.send_message(TEL_CHAT, "Failed to set stop loss")
+                await tel_client.send_message(TEL_CHAT, "Failed")
         except ValueError:
             await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'limitbuy':
+        if len(msg) < 4:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            usdt_amount = float(msg[2])
+            price = float(msg[3])
+            result = await limit_order('BUY', symbol, usdt_amount, price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'limitsell':
+        if len(msg) < 4:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            usdt_amount = float(msg[2])
+            price = float(msg[3])
+            result = await limit_order('SELL', symbol, usdt_amount, price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'cancelall':
+        result = await cancel_all_orders()
+        if "code" in result and result['code'] == 200:
+            await tel_client.send_message(TEL_CHAT, "All orders canceled.")
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed to cancel orders.")
 
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
