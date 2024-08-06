@@ -20,7 +20,7 @@ BI_API_KEY = os.getenv("BI_API_KEY")
 BI_API_SECRET = os.getenv("BI_API_SECRET")
 TEL_CHAT = os.getenv("TEL_CHAT")  # This should be the ID or username of the private chat
 
-# Initialize Telegram client with device info
+# Initialize Telegram and Binance clients asynchronously with device info
 tel_client = TelegramClient(
     'anon',
     TEL_API_ID,
@@ -28,12 +28,8 @@ tel_client = TelegramClient(
     device_model="Linux",
     system_version="4.16.30-CUSTOM"
 )
+bi_client = AsyncClient(BI_API_KEY, BI_API_SECRET)
 
-# Initialize Binance client asynchronously
-async def init_binance_client():
-    return await AsyncClient.create(BI_API_KEY, BI_API_SECRET)
-
-bi_client = asyncio.run(init_binance_client())
 
 async def get_open_positions():
     try:
@@ -45,29 +41,24 @@ async def get_open_positions():
         logging.error(f"Error fetching open positions: {e}")
         return pd.DataFrame()
 
+
 async def get_precision(symbol):
-    try:
-        info = await bi_client.futures_exchange_info()
-        for x in info['symbols']:
-            if x['symbol'] == symbol:
-                return int(x['quantityPrecision'])
-    except Exception as e:
-        logging.error(f"Error fetching precision for {symbol}: {e}")
+    info = await bi_client.futures_exchange_info()
+    for x in info['symbols']:
+        if x['symbol'] == symbol:
+            return int(x['quantityPrecision'])
+
 
 async def get_last_price(symbol):
-    try:
-        price = await bi_client.futures_mark_price(symbol=symbol)
-        return float(price['indexPrice'])
-    except Exception as e:
-        logging.error(f"Error fetching last price for {symbol}: {e}")
+    price = await bi_client.futures_mark_price(symbol=symbol)
+    return float(price['indexPrice'])
+
 
 async def order_quantity(amount, symbol):
-    try:
-        price = await get_last_price(symbol)
-        precision = await get_precision(symbol)
-        return round(amount / price, precision)
-    except Exception as e:
-        logging.error(f"Error calculating order quantity for {symbol}: {e}")
+    price = await get_last_price(symbol)
+    precision = await get_precision(symbol)
+    return round(amount / price, precision)
+
 
 async def create_order(order_type, symbol, side, quantity, price=None):
     try:
@@ -83,16 +74,19 @@ async def create_order(order_type, symbol, side, quantity, price=None):
         order = await bi_client.futures_create_order(**params)
         return order
     except Exception as e:
-        logging.error(f"Failed to place {order_type} order for {symbol}: {e}")
+        logging.error(f"Failed to place order: {e}")
         return {}
+
 
 async def place_market_order(side, symbol, amount):
     quantity = await order_quantity(amount, symbol)
     return await create_order('MARKET', symbol, side, quantity)
 
+
 async def place_limit_order(side, symbol, usdt_amount, price):
     quantity = await order_quantity(usdt_amount, symbol)
     return await create_order('LIMIT', symbol, side, quantity, price)
+
 
 async def place_conditional_order(order_type, symbol, price):
     positions = await get_open_positions()
@@ -104,8 +98,10 @@ async def place_conditional_order(order_type, symbol, price):
     else:
         return "No open position for this symbol."
 
+
 async def close_position(coin):
     return await place_conditional_order('MARKET', coin + 'USDT', None)
+
 
 async def close_all_positions():
     positions = await get_open_positions()
@@ -114,13 +110,15 @@ async def close_all_positions():
     results = [await close_position(row['symbol'].replace('USDT', '')) for index, row in positions.iterrows()]
     return results
 
+
 async def cancel_all_orders(symbol):
     try:
         result = await bi_client.futures_cancel_all_open_orders(symbol=symbol)
         return result
     except Exception as e:
-        logging.error(f"Failed to cancel orders for {symbol}: {e}")
+        logging.error(f"Failed to cancel orders: {e}")
         return {}
+
 
 async def list_positions():
     positions = await get_open_positions()
@@ -134,6 +132,7 @@ async def list_positions():
                    f"  PnL: {round(float(row['unrealizedProfit']), 2)}\n\n")
     return result.strip()
 
+
 async def get_balance():
     try:
         account_info = await bi_client.futures_account()
@@ -143,6 +142,7 @@ async def get_balance():
     except Exception as e:
         logging.error(f"Error fetching balance: {e}")
         return None, None
+
 
 async def handle_commands(event):
     if not event.message.text.startswith('/'):
@@ -234,14 +234,17 @@ async def handle_commands(event):
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
 
+
 @tel_client.on(events.NewMessage(chats=TEL_CHAT))
 async def handle_commands_wrapper(event):
     await handle_commands(event)
+
 
 async def main():
     await tel_client.start()
     logging.info("Bot started and listening...")
     await tel_client.run_until_disconnected()
+
 
 async def shutdown(loop):
     logging.info("Shutting down...")
@@ -259,6 +262,7 @@ async def shutdown(loop):
             logging.error(f"Exception during shutdown: {result}")
 
     loop.stop()
+
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
