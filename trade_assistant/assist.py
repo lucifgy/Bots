@@ -30,7 +30,6 @@ tel_client = TelegramClient(
 )
 bi_client = AsyncClient(BI_API_KEY, BI_API_SECRET)
 
-
 async def get_open_positions():
     try:
         positions = await bi_client.futures_account()
@@ -41,24 +40,20 @@ async def get_open_positions():
         logging.error(f"Error fetching open positions: {e}")
         return pd.DataFrame()
 
-
 async def get_precision(symbol):
     info = await bi_client.futures_exchange_info()
     for x in info['symbols']:
         if x['symbol'] == symbol:
             return int(x['quantityPrecision'])
 
-
 async def get_last_price(symbol):
     price = await bi_client.futures_mark_price(symbol=symbol)
     return float(price['indexPrice'])
-
 
 async def order_quantity(amount, symbol):
     price = await get_last_price(symbol)
     precision = await get_precision(symbol)
     return round(amount / price, precision)
-
 
 async def create_order(order_type, symbol, side, quantity, price=None):
     try:
@@ -77,16 +72,13 @@ async def create_order(order_type, symbol, side, quantity, price=None):
         logging.error(f"Failed to place order: {e}")
         return {}
 
-
 async def place_market_order(side, symbol, amount):
     quantity = await order_quantity(amount, symbol)
     return await create_order('MARKET', symbol, side, quantity)
 
-
 async def place_limit_order(side, symbol, usdt_amount, price):
     quantity = await order_quantity(usdt_amount, symbol)
     return await create_order('LIMIT', symbol, side, quantity, price)
-
 
 async def place_conditional_order(order_type, symbol, price):
     positions = await get_open_positions()
@@ -98,10 +90,8 @@ async def place_conditional_order(order_type, symbol, price):
     else:
         return "No open position for this symbol."
 
-
 async def close_position(coin):
     return await place_conditional_order('MARKET', coin + 'USDT', None)
-
 
 async def close_all_positions():
     positions = await get_open_positions()
@@ -110,7 +100,6 @@ async def close_all_positions():
     results = [await close_position(row['symbol'].replace('USDT', '')) for index, row in positions.iterrows()]
     return results
 
-
 async def cancel_all_orders(symbol):
     try:
         result = await bi_client.futures_cancel_all_open_orders(symbol=symbol)
@@ -118,7 +107,6 @@ async def cancel_all_orders(symbol):
     except Exception as e:
         logging.error(f"Failed to cancel orders: {e}")
         return {}
-
 
 async def list_positions():
     positions = await get_open_positions()
@@ -132,7 +120,6 @@ async def list_positions():
                    f"  PnL: {round(float(row['unrealizedProfit']), 2)}\n\n")
     return result.strip()
 
-
 async def get_balance():
     try:
         account_info = await bi_client.futures_account()
@@ -143,7 +130,49 @@ async def get_balance():
         logging.error(f"Error fetching balance: {e}")
         return None, None
 
+async def set_stop_loss(symbol, stop_price):
+    try:
+        positions = await get_open_positions()
+        posses = positions.set_index('symbol').T.to_dict()
+        if symbol in posses:
+            pos_Amt = float(posses[symbol]['positionAmt'])
+            side = 'SELL' if pos_Amt > 0 else 'BUY'
+            stop_loss_order = await bi_client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type='STOP_MARKET',
+                stopPrice=stop_price,
+                closePosition='true'
+            )
+            return stop_loss_order
+        else:
+            return "No open position for this symbol."
+    except Exception as e:
+        logging.error(f"Error setting stop loss: {e}")
+        return {}
 
+async def set_take_profit(symbol, target_price):
+    try:
+        positions = await get_open_positions()
+        posses = positions.set_index('symbol').T.to_dict()
+        if symbol in posses:
+            pos_Amt = float(posses[symbol]['positionAmt'])
+            side = 'SELL' if pos_Amt > 0 else 'BUY'
+            take_profit_order = await bi_client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type='TAKE_PROFIT_MARKET',
+                stopPrice=target_price,
+                closePosition='true'
+            )
+            return take_profit_order
+        else:
+            return "No open position for this symbol."
+    except Exception as e:
+        logging.error(f"Error setting take profit: {e}")
+        return {}
+
+@tel_client.on(events.NewMessage(chats=TEL_CHAT))
 async def handle_commands(event):
     if not event.message.text.startswith('/'):
         return  # Ignore any message that doesn't start with '/'
@@ -151,49 +180,42 @@ async def handle_commands(event):
     msg = event.message.text.split()
     command = msg[0][1:].lower()
 
-    command_mapping = {
-        'long': place_market_order,
-        'short': place_market_order,
-        'limitbuy': place_limit_order,
-        'limitsell': place_limit_order,
-        'close': close_position,
-        'closeall': close_all_positions,
-        'balance': get_balance,
-        'tp': lambda symbol, price: place_conditional_order('TAKE_PROFIT_MARKET', symbol, price),
-        'stop': lambda symbol, price: place_conditional_order('STOP_MARKET', symbol, price),
-        'cancelall': cancel_all_orders
-    }
-
-    async def send_result(result):
-        await tel_client.send_message(TEL_CHAT, "Done" if "orderId" in result else "Failed")
-
-    if command in ['long', 'short', 'limitbuy', 'limitsell']:
-        if len(msg) < 4:
+    if command in ['long', 'short']:
+        if len(msg) < 3:
             await tel_client.send_message(TEL_CHAT, "Failed")
             return
 
         symbol = msg[1].upper() + 'USDT'
         try:
-            usdt_amount = float(msg[2])
-            price = float(msg[3]) if command in ['limitbuy', 'limitsell'] else None
-            if usdt_amount <= 0:
+            amount = float(msg[2])
+            if amount <= 0:
                 await tel_client.send_message(TEL_CHAT, "Failed")
                 return
         except ValueError:
             await tel_client.send_message(TEL_CHAT, "Failed")
             return
 
-        result = await command_mapping[command](command, symbol, usdt_amount, price)
-        await send_result(result)
+        result = await place_market_order('BUY' if command == 'long' else 'SELL', symbol, amount)
+        if "orderId" in result:
+            await tel_client.send_message(TEL_CHAT, "Done")
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed")
 
-    elif command in ['close', 'cancelall']:
+    elif command == 'list':
+        result = await list_positions()
+        await tel_client.send_message(TEL_CHAT, result if result else "No open positions.")
+
+    elif command == 'close':
         if len(msg) < 2:
             await tel_client.send_message(TEL_CHAT, "Failed")
             return
 
-        symbol = msg[1].upper() + 'USDT'
-        result = await command_mapping[command](symbol)
-        await send_result(result)
+        symbol = msg[1].upper()
+        result = await close_position(symbol)
+        if "orderId" in result:
+            await tel_client.send_message(TEL_CHAT, "Done")
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed")
 
     elif command == 'closeall':
         results = await close_all_positions()
@@ -206,45 +228,97 @@ async def handle_commands(event):
         margin_balance, margin_ratio = await get_balance()
         if margin_balance is not None and margin_ratio is not None:
             await tel_client.send_message(
-                TEL_CHAT,
+                TEL_CHAT, 
                 f"Margin Balance: {margin_balance:.2f}\nMargin Ratio: {margin_ratio:.2%}"
             )
         else:
             await tel_client.send_message(TEL_CHAT, "Failed to fetch balance.")
 
-    elif command == 'list':
-        result = await list_positions()
-        await tel_client.send_message(TEL_CHAT, result if result else "No open positions.")
-
-    elif command in ['tp', 'stop']:
+    elif command == 'tp':
         if len(msg) < 3:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+        
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            target_price = float(msg[2])
+            result = await set_take_profit(symbol, target_price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'stop':
+        if len(msg) < 3:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+        
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            stop_price = float(msg[2])
+            result = await set_stop_loss(symbol, stop_price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'limitbuy':
+        if len(msg) < 4:
             await tel_client.send_message(TEL_CHAT, "Failed")
             return
 
         symbol = msg[1].upper() + 'USDT'
         try:
-            price = float(msg[2])
+            usdt_amount = float(msg[2])
+            price = float(msg[3])
+            result = await place_limit_order('BUY', symbol, usdt_amount, price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
         except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'limitsell':
+        if len(msg) < 4:
             await tel_client.send_message(TEL_CHAT, "Failed")
             return
 
-        result = await command_mapping[command](symbol, price)
-        await send_result(result)
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            usdt_amount = float(msg[2])
+            price = float(msg[3])
+            result = await place_limit_order('SELL', symbol, usdt_amount, price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Done")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'cancelall':
+        if len(msg) < 2:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+
+        symbol = msg[1].upper() + 'USDT'
+        result = await cancel_all_orders(symbol)
+        if "code" in result and result['code'] == 200:
+            await tel_client.send_message(TEL_CHAT, "Done")
+        else:
+            await tel_client.send_message(TEL_CHAT, "Failed")
 
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
-
-
-@tel_client.on(events.NewMessage(chats=TEL_CHAT))
-async def handle_commands_wrapper(event):
-    await handle_commands(event)
-
 
 async def main():
     await tel_client.start()
     logging.info("Bot started and listening...")
     await tel_client.run_until_disconnected()
-
 
 async def shutdown(loop):
     logging.info("Shutting down...")
@@ -262,7 +336,6 @@ async def shutdown(loop):
             logging.error(f"Exception during shutdown: {result}")
 
     loop.stop()
-
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
