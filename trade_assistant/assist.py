@@ -122,6 +122,48 @@ async def get_balance():
         logging.error(f"Error fetching balance: {e}")
         return None, None
 
+async def set_stop_loss(symbol, stop_price):
+    try:
+        positions = await get_open_positions()
+        posses = positions.set_index('symbol').T.to_dict()
+        if symbol in posses:
+            pos_Amt = float(posses[symbol]['positionAmt'])
+            side = 'SELL' if pos_Amt > 0 else 'BUY'
+            stop_loss_order = await bi_client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type='STOP_MARKET',
+                stopPrice=stop_price,
+                closePosition='true'
+            )
+            return stop_loss_order
+        else:
+            return "No open position for this symbol."
+    except Exception as e:
+        logging.error(f"Error setting stop loss: {e}")
+        return {}
+
+async def set_take_profit(symbol, target_price):
+    try:
+        positions = await get_open_positions()
+        posses = positions.set_index('symbol').T.to_dict()
+        if symbol in posses:
+            pos_Amt = float(posses[symbol]['positionAmt'])
+            side = 'SELL' if pos_Amt > 0 else 'BUY'
+            take_profit_order = await bi_client.futures_create_order(
+                symbol=symbol,
+                side=side,
+                type='TAKE_PROFIT_MARKET',
+                stopPrice=target_price,
+                closePosition='true'
+            )
+            return take_profit_order
+        else:
+            return "No open position for this symbol."
+    except Exception as e:
+        logging.error(f"Error setting take profit: {e}")
+        return {}
+
 @tel_client.on(events.NewMessage(chats=TEL_CHAT))
 async def handle_commands(event):
     if not event.message.text.startswith('/'):
@@ -183,6 +225,38 @@ async def handle_commands(event):
             )
         else:
             await tel_client.send_message(TEL_CHAT, "Failed to fetch balance.")
+
+    elif command == 'tp':
+        if len(msg) < 3:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+        
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            target_price = float(msg[2])
+            result = await set_take_profit(symbol, target_price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Take profit set")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed to set take profit")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+
+    elif command == 'stop':
+        if len(msg) < 3:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+        
+        symbol = msg[1].upper() + 'USDT'
+        try:
+            stop_price = float(msg[2])
+            result = await set_stop_loss(symbol, stop_price)
+            if "orderId" in result:
+                await tel_client.send_message(TEL_CHAT, "Stop loss set")
+            else:
+                await tel_client.send_message(TEL_CHAT, "Failed to set stop loss")
+        except ValueError:
+            await tel_client.send_message(TEL_CHAT, "Failed")
 
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
