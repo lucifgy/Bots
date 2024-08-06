@@ -116,9 +116,9 @@ async def close_all_positions():
         results.append(result)
     return results
 
-async def cancel_all_orders():
+async def cancel_all_orders(symbol):
     try:
-        result = await bi_client.futures_cancel_all_open_orders()
+        result = await bi_client.futures_cancel_all_open_orders(symbol=symbol)
         return result
     except Exception as e:
         logging.error(f"Failed to cancel orders: {e}")
@@ -317,7 +317,12 @@ async def handle_commands(event):
             await tel_client.send_message(TEL_CHAT, "Failed")
 
     elif command == 'cancelall':
-        result = await cancel_all_orders()
+        if len(msg) < 2:
+            await tel_client.send_message(TEL_CHAT, "Failed")
+            return
+
+        symbol = msg[1].upper() + 'USDT'
+        result = await cancel_all_orders(symbol)
         if "code" in result and result['code'] == 200:
             await tel_client.send_message(TEL_CHAT, "All orders canceled.")
         else:
