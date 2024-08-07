@@ -122,10 +122,11 @@ async def get_balance():
         account_info = await bi_client.futures_account()
         margin_balance = float(account_info['totalMarginBalance'])
         margin_ratio = float(account_info['totalMaintMargin']) / float(account_info['totalMarginBalance'])
-        return margin_balance, margin_ratio
+        unrealized_pnl = float(account_info['totalCrossUnPnl'])
+        return margin_balance, margin_ratio, unrealized_pnl
     except Exception as e:
         logging.error(f"Error fetching balance: {e}")
-        return None, None
+        return None, None, None
 
 async def set_stop_order(symbol, stop_price, order_type):
     positions = await get_open_positions()
@@ -189,9 +190,9 @@ async def handle_closeall(_):
     return "Done" if all("orderId" in result for result in results) else "Failed"
 
 async def handle_balance(_):
-    margin_balance, margin_ratio = await get_balance()
-    if margin_balance is not None and margin_ratio is not None:
-        return f"Margin Balance: {margin_balance:.2f}\nMargin Ratio: {margin_ratio:.2%}"
+    margin_balance, margin_ratio, unrealized_pnl = await get_balance()
+    if margin_balance is not None and margin_ratio is not None and unrealized_pnl is not None:
+        return f"Margin Balance: {margin_balance:.2f}\nMargin Ratio: {margin_ratio:.2%}\nPnL: {unrealized_pnl:.2f}"
     else:
         return "Failed to fetch balance."
 
