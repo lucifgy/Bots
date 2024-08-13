@@ -1,8 +1,8 @@
 import os
+import time
 from dotenv import load_dotenv
 from telethon import TelegramClient
-from binance import AsyncClient
-import asyncio
+from binance.client import Client
 
 load_dotenv()
 
@@ -13,45 +13,29 @@ BI_API_SECRET = os.getenv("BI_API_SECRET")
 TEL_CHAT = os.getenv("TEL_CHAT")
 
 PRICE_THRESHOLD_LOW = 0.0001293
-PRICE_THRESHOLD_HIGH = 0.0001326
-CHECK_INTERVAL = 300
+PRICE_THRESHOLD_HIGH = 0.0001315
+CHECK_INTERVAL = 300 
 SYMBOL = 'SHIBDOGE'
 
-tel_client = TelegramClient('anon', TEL_API_ID, TEL_API_HASH, device_model="Linux", system_version="4.16.30-CUSTOM")
-bi_client = AsyncClient(BI_API_KEY, BI_API_SECRET)
+tel_client = TelegramClient('anon', TEL_API_ID, TEL_API_HASH)
+bi_client = Client(BI_API_KEY, BI_API_SECRET)
 
-async def check_price():
-    ticker = await bi_client.get_symbol_ticker(symbol=SYMBOL)
+def check_price():
+    ticker = bi_client.get_symbol_ticker(symbol=SYMBOL)
     current_price = float(ticker['price'])
     if current_price <= PRICE_THRESHOLD_LOW or current_price >= PRICE_THRESHOLD_HIGH:
-        await tel_client.send_message(TEL_CHAT, "/close 1000shib")
-        await tel_client.send_message(TEL_CHAT, "/close doge")
-        await shutdown()
+        send_alert()
 
-async def price_monitor():
-    while True:
-        await check_price()
-        await asyncio.sleep(CHECK_INTERVAL)
+def send_alert():
+    with tel_client:
+        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close 1000shib"))
+        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close doge"))
 
-async def main():
-    await tel_client.start()
-    await price_monitor()
-
-async def shutdown():
-    await tel_client.disconnect()
-    await bi_client.close_connection()
-
-    tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
-    for task in tasks:
-        task.cancel()
-    await asyncio.gather(*tasks, return_exceptions=True)
+def main():
+    with tel_client:
+        while True:
+            check_price()
+            time.sleep(CHECK_INTERVAL)
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        loop.run_until_complete(shutdown())
-    finally:
-        loop.run_until_complete(loop.shutdown_asyncgens())
-        loop.close()
+    main()
