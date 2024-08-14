@@ -17,7 +17,14 @@ PRICE_THRESHOLD_HIGH = 0.0001315
 CHECK_INTERVAL = 300 
 SYMBOL = 'SHIBDOGE'
 
-tel_client = TelegramClient('anon', TEL_API_ID, TEL_API_HASH)
+tel_client = TelegramClient(
+    'pair',
+    TEL_API_ID,
+    TEL_API_HASH,
+    device_model="Ubuntu",
+    system_version="4.16.31-CUSTOM"
+)
+
 bi_client = Client(BI_API_KEY, BI_API_SECRET)
 
 def check_price():
