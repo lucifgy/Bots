@@ -12,6 +12,8 @@ parser = argparse.ArgumentParser(description="Monitor cryptocurrency prices and 
 parser.add_argument("symbol", type=str, help="The symbol of the cryptocurrency pair to monitor (e.g., SHIBDOGE).")
 parser.add_argument("low", type=float, help="The lower price threshold.")
 parser.add_argument("high", type=float, help="The higher price threshold.")
+parser.add_argument("mainsymbol", type=str, help="The main symbol.")
+parser.add_argument("secsymbol", type=str, help="The secondary pair.")
 args = parser.parse_args()
 
 TEL_API_ID = int(os.getenv("TEL_API_ID"))
@@ -23,6 +25,8 @@ TEL_CHAT = os.getenv("TEL_CHAT")
 PRICE_THRESHOLD_LOW = args.low
 PRICE_THRESHOLD_HIGH = args.high
 SYMBOL = args.symbol
+MAIN_SYMBOL = args.mainsymbol
+SEC_SYMBOL = args.secsymbol
 CHECK_INTERVAL = 300
 
 tel_client = tel_client = TelegramClient(
@@ -43,8 +47,8 @@ def check_price():
 
 def send_alert():
     with tel_client:
-        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close 1000shib"))
-        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close doge"))
+        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close " + MAIN_SYMBOL))
+        tel_client.loop.run_until_complete(tel_client.send_message(TEL_CHAT, "/close " + SEC_SYMBOL))
 
 def main():
     with tel_client:
