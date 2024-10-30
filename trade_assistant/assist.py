@@ -19,6 +19,8 @@ TEL_API_HASH = os.getenv("TEL_API_HASH")
 BI_API_KEY = os.getenv("BI_API_KEY")
 BI_API_SECRET = os.getenv("BI_API_SECRET")
 TEL_CHAT = os.getenv("TEL_CHAT")  # This should be the ID or username of the private chat
+# Liq tracking update
+LIQ_TEL_CHAT = int(os.getenv("LIQ_TEL_CHAT"))
 
 # Initialize Telegram and Binance clients asynchronously with device info
 tel_client = TelegramClient(
@@ -277,6 +279,53 @@ async def handle_commands(event):
         await tel_client.send_message(TEL_CHAT, response)
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
+
+
+# Liq trakcing update
+@tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
+async def handle_liquidation_notifications(event):
+    message_text = event.message.text
+    margin_balance, margin_ratio, unrealized_pnl = await get_balance()
+
+    # Check if the message includes '#' for the ticker and mentions "Long" or "Short"
+    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text) or margin_balance < 30.00:
+        return  # Ignore messages that don't match the expected structure
+
+    # Parse the message for ticker and position type (Long or Short)
+    try:
+        parts = message_text.split()
+        ticker = parts[1][1:].upper()  # Extracts the ticker by removing '#' (e.g., "#SOL" becomes "SOL")
+        direction = "BUY" if "Long" in message_text else "SELL"
+    except IndexError:
+        await tel_client.send_message(TEL_CHAT, "Failed to parse liquidation message structure.")
+        return
+
+    # Place order with fixed size
+    symbol = f"{ticker}USDT"
+    size = 100  # Fixed position size
+    order = await place_order(direction, symbol, size)
+    if "orderId" not in order:
+        await tel_client.send_message(TEL_CHAT, f"Failed to open position for {ticker}.")
+        return
+
+    # Fetch entry price for stop and TP
+    positions = await get_open_positions()
+    entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
+
+    # Set stop and TP based on direction and entry price
+    adjustment = entry_price * 0.005  # 0.5% adjustment
+    stop_price = round(entry_price - adjustment if direction == "BUY" else entry_price + adjustment, await get_precision(symbol))
+    tp_price = round(entry_price + adjustment if direction == "BUY" else entry_price - adjustment, await get_precision(symbol))
+
+    # Set stop and take profit orders
+    await set_stop_order(symbol, stop_price, 'STOP_MARKET')
+    await set_stop_order(symbol, tp_price, 'TAKE_PROFIT_MARKET')
+
+    # Send a summary message to the first chat
+    await tel_client.send_message(
+        TEL_CHAT,
+        f"Opened {ticker} position, with stop {stop_price} and TP {tp_price}"
+    )
 
 async def main():
     await tel_client.start()
