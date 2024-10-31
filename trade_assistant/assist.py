@@ -19,9 +19,9 @@ TEL_API_HASH = os.getenv("TEL_API_HASH")
 BI_API_KEY = os.getenv("BI_API_KEY")
 BI_API_SECRET = os.getenv("BI_API_SECRET")
 TEL_CHAT = os.getenv("TEL_CHAT")  # This should be the ID or username of the private chat
+# Liq tracking update
 LIQ_TEL_CHAT = int(os.getenv("LIQ_TEL_CHAT"))
 
-# Initial settings
 LIQ_stop_ratio = 0.5
 LIQ_tp_ratio = 0.5
 LIQ_size = 100
@@ -76,10 +76,6 @@ async def order_quantity(amount, symbol):
 
 async def place_order(side, symbol, amount, order_type='MARKET', price=None):
     quantity = await order_quantity(amount, symbol)
-    if quantity <= 0:
-        logging.error(f"Order quantity for {symbol} is zero or negative.")
-        return {}
-
     order_params = {
         'symbol': symbol,
         'type': order_type,
@@ -172,6 +168,106 @@ async def set_stop_order(symbol, stop_price, order_type):
     else:
         return "No open position for this symbol."
 
+async def handle_long(msg):
+    if len(msg) < 3:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        amount = float(msg[2])
+        if amount <= 0:
+            return "Failed"
+    except ValueError:
+        return "Failed"
+    result = await place_order('BUY', symbol, amount)
+    return "Done" if "orderId" in result else "Failed"
+
+async def handle_short(msg):
+    if len(msg) < 3:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        amount = float(msg[2])
+        if amount <= 0:
+            return "Failed"
+    except ValueError:
+        return "Failed"
+    result = await place_order('SELL', symbol, amount)
+    return "Done" if "orderId" in result else "Failed"
+
+async def handle_list(_):
+    return await list_positions()
+
+async def handle_close(msg):
+    if len(msg) < 2:
+        return "Failed"
+    symbol = msg[1].upper()
+    result = await close_position(symbol)
+    return "Done" if "orderId" in result else "Failed"
+
+async def handle_closeall(_):
+    results = await close_all_positions()
+    return "Done" if all("orderId" in result for result in results) else "Failed"
+
+async def handle_balance(_):
+    margin_balance, margin_ratio, unrealized_pnl = await get_balance()
+    if margin_balance is not None and margin_ratio is not None and unrealized_pnl is not None:
+        return f"Margin Balance: {margin_balance:.2f}\nMargin Ratio: {margin_ratio:.2%}\nPnL: {unrealized_pnl:.2f}"
+    else:
+        return "Failed to fetch balance."
+
+async def handle_tp(msg):
+    if len(msg) < 3:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        target_price = float(msg[2])
+        result = await set_stop_order(symbol, target_price, 'TAKE_PROFIT_MARKET')
+        return "Done" if "orderId" in result else "Failed"
+    except ValueError:
+        return "Failed"
+
+async def handle_stop(msg):
+    if len(msg) < 3:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        stop_price = float(msg[2])
+        result = await set_stop_order(symbol, stop_price, 'STOP_MARKET')
+        return "Done" if "orderId" in result else "Failed"
+    except ValueError:
+        return "Failed"
+
+async def handle_limitbuy(msg):
+    if len(msg) < 4:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        usdt_amount = float(msg[2])
+        price = float(msg[3])
+        result = await place_order('BUY', symbol, usdt_amount, 'LIMIT', price)
+        return "Done" if "orderId" in result else "Failed"
+    except ValueError:
+        return "Failed"
+
+async def handle_limitsell(msg):
+    if len(msg) < 4:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    try:
+        usdt_amount = float(msg[2])
+        price = float(msg[3])
+        result = await place_order('SELL', symbol, usdt_amount, 'LIMIT', price)
+        return "Done" if "orderId" in result else "Failed"
+    except ValueError:
+        return "Failed"
+
+async def handle_cancelall(msg):
+    if len(msg) < 2:
+        return "Failed"
+    symbol = msg[1].upper() + 'USDT'
+    result = await cancel_all_orders(symbol)
+    return "Done" if "code" in result and result['code'] == 200 else "Failed"
+
 async def set_liq_size(msg):
     global LIQ_size
     if len(msg) < 2:
@@ -179,34 +275,33 @@ async def set_liq_size(msg):
     try:
         LIQ_size = int(msg[1])
         return "Done"
-    except Exception as e:
-        logging.error(f"Failed to set liquidation size: {e}")
+    except Exception:
         return "Failed"
-
+    
 async def set_liq_stop_ratio(msg):
-    global LIQ_stop_ratio
+    global  LIQ_stop_ratio
     if len(msg) < 2:
         return "Failed"
     try:
         LIQ_stop_ratio = float(msg[1])
         return "Done"
-    except Exception as e:
-        logging.error(f"Failed to set liquidation stop ratio: {e}")
+    except Exception:
         return "Failed"
 
 async def set_liq_tp_ratio(msg):
-    global LIQ_tp_ratio
+    global  LIQ_tp_ratio
     if len(msg) < 2:
         return "Failed"
     try:
         LIQ_tp_ratio = float(msg[1])
         return "Done"
-    except Exception as e:
-        logging.error(f"Failed to set liquidation TP ratio: {e}")
+    except Exception:
         return "Failed"
 
 async def set_liq_enable(msg):
-    global LIQ_enabled, LIQ_short_enabled, LIQ_long_enabled
+    global LIQ_enabled
+    global LIQ_short_enabled
+    global LIQ_long_enabled
     if len(msg) < 2:
         LIQ_enabled = True
         return "Done"
@@ -214,10 +309,11 @@ async def set_liq_enable(msg):
         LIQ_short_enabled = True
     elif msg[1].upper() == "LONG":
         LIQ_long_enabled = True
-    return "Done"
 
 async def set_liq_disable(msg):
-    global LIQ_enabled, LIQ_short_enabled, LIQ_long_enabled
+    global LIQ_enabled
+    global LIQ_short_enabled
+    global LIQ_long_enabled
     if len(msg) < 2:
         LIQ_enabled = False
         return "Done"
@@ -225,11 +321,9 @@ async def set_liq_disable(msg):
         LIQ_short_enabled = False
     elif msg[1].upper() == "LONG":
         LIQ_long_enabled = False
-    return "Done"
 
 async def liq_settings(_):
-    return (f"Size: {LIQ_size}\nTP: {LIQ_tp_ratio}\nStop: {LIQ_stop_ratio}\n"
-            f"Enabled: {LIQ_enabled}\nShort Enabled: {LIQ_short_enabled}\nLong Enabled: {LIQ_long_enabled}")
+    return f"Size: {LIQ_size}\nTP: {LIQ_tp_ratio}\nStop: {LIQ_stop_ratio}\nEnabled: {LIQ_enabled}\nShort Enabled: {LIQ_short_enabled}\Long Enabled: {LIQ_long_enabled}"
 
 COMMAND_HANDLERS = {
     'long': handle_long,
@@ -266,29 +360,29 @@ async def handle_commands(event):
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
 
+# Liq trakcing update
+toggle_bot = False
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
-    if not LIQ_enabled:
+    if toggle_bot == False:
         return
-
     message_text = event.message.text
 
     # Check if the message includes '#' for the ticker and mentions "Long" or "Short"
-    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text):
+    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text) or LIQ_enabled == False:
         return
 
     try:
         parts = message_text.split()
         ticker = parts[1][1:].upper()
         direction = "BUY" if "Long" in message_text else "SELL"
-    except IndexError as e:
-        logging.error(f"Error parsing message text '{message_text}': {e}")
+    except IndexError:
         await tel_client.send_message(TEL_CHAT, "Failed to parse liquidation message structure.")
         return
-
-    if direction == "BUY" and not LIQ_long_enabled:
+    
+    if direction == "BUY" and LIQ_long_enabled == False:
         return
-    if direction == "SELL" and not LIQ_short_enabled:
+    if direction == "SELL" and LIQ_short_enabled == False:
         return
 
     symbol = f"{ticker}USDT"
@@ -302,7 +396,7 @@ async def handle_liquidation_notifications(event):
     entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
 
     # Set stop and TP based on direction and entry price, with precision from last price
-    stop_adjustment = entry_price * (LIQ_stop_ratio / 100)
+    stop_adjustment = entry_price * (LIQ_stop_ratio / 100)  # 0.5% adjustment
     tp_adjustment = entry_price * (LIQ_tp_ratio / 100)
     stop_price = round(entry_price - stop_adjustment if direction == "BUY" else entry_price + stop_adjustment, await get_tick_size(symbol))
     tp_price = round(entry_price + tp_adjustment if direction == "BUY" else entry_price - tp_adjustment, await get_tick_size(symbol))
@@ -313,10 +407,10 @@ async def handle_liquidation_notifications(event):
 
     # Send a summary message to the first chat
     await tel_client.send_message(
-        TEL_CHAT,
-        f"Opened {ticker} {direction} position:\n"
-        f"  - Stop: {stop_price}\n"
-        f"  - Take Profit: {tp_price}"
+    TEL_CHAT,
+    f"Opened {ticker} {direction} position:\n"
+    f"  - Stop: {stop_price}\n"
+    f"  - Take Profit: {tp_price}"
     )
 
 async def main():
