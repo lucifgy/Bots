@@ -285,10 +285,9 @@ async def handle_commands(event):
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
     message_text = event.message.text
-    margin_balance, margin_ratio, unrealized_pnl = await get_balance()
 
     # Check if the message includes '#' for the ticker and mentions "Long" or "Short"
-    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text) or margin_balance < 30.00:
+    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text):
         return  # Ignore messages that don't match the expected structure
 
     # Parse the message for ticker and position type (Long or Short)
@@ -312,10 +311,14 @@ async def handle_liquidation_notifications(event):
     positions = await get_open_positions()
     entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
 
-    # Set stop and TP based on direction and entry price
+    # Get last price to determine decimal precision
+    last_price = await get_last_price(symbol)
+    decimal_places = len(str(last_price).split('.')[1]) if '.' in str(last_price) else 0
+
+    # Set stop and TP based on direction and entry price, with precision from last price
     adjustment = entry_price * 0.005  # 0.5% adjustment
-    stop_price = round(entry_price - adjustment if direction == "BUY" else entry_price + adjustment, await get_precision(symbol))
-    tp_price = round(entry_price + adjustment if direction == "BUY" else entry_price - adjustment, await get_precision(symbol))
+    stop_price = round(entry_price - adjustment if direction == "BUY" else entry_price + adjustment, decimal_places)
+    tp_price = round(entry_price + adjustment if direction == "BUY" else entry_price - adjustment, decimal_places)
 
     # Set stop and take profit orders
     await set_stop_order(symbol, stop_price, 'STOP_MARKET')
