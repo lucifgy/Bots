@@ -323,7 +323,7 @@ async def set_liq_disable(msg):
         LIQ_long_enabled = False
 
 async def liq_settings(_):
-    return f"Size: {LIQ_size}\nTP: {LIQ_tp_ratio}\nStop: {LIQ_stop_ratio}\nEnabled: {LIQ_enabled}\nShort Enabled: {LIQ_short_enabled}\Long Enabled: {LIQ_long_enabled}"
+    return f"Size: {LIQ_size}\nTP: {LIQ_tp_ratio}\nStop: {LIQ_stop_ratio}\nEnabled: {LIQ_enabled}\nShort Enabled: {LIQ_short_enabled}\nLong Enabled: {LIQ_long_enabled}"
 
 COMMAND_HANDLERS = {
     'long': handle_long,
