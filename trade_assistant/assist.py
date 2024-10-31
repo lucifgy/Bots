@@ -282,8 +282,11 @@ async def handle_commands(event):
 
 
 # Liq trakcing update
+toggle_bot = false
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
+    if toggle_bot == false:
+        return
     message_text = event.message.text
 
     # Check if the message includes '#' for the ticker and mentions "Long" or "Short"
