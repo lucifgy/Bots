@@ -282,10 +282,10 @@ async def handle_commands(event):
 
 
 # Liq trakcing update
-toggle_bot = false
+toggle_bot = False
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
-    if toggle_bot == false:
+    if toggle_bot == False:
         return
     message_text = event.message.text
 
