@@ -356,13 +356,16 @@ async def handle_commands(event):
     handler = COMMAND_HANDLERS.get(command)
     if handler:
         response = await handler(msg)
-        await tel_client.send_message(TEL_CHAT, response)
+        if response:
+            await tel_client.send_message(TEL_CHAT, response)
+        else:
+            await tel_client.send_message(TEL_CHAT, "No response generated.")
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
 
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
-    if LIQ_enabled == False:
+    if not LIQ_enabled:
         return
         
     message_text = event.message.text
@@ -389,35 +392,43 @@ async def handle_liquidation_notifications(event):
     positions = await get_open_positions()
     existing_position = positions[positions['symbol'] == symbol]
     if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
-        # Abort if a position already exists for the symbol
         await tel_client.send_message(TEL_CHAT, f"Position already exists for {symbol}. Aborting.")
         return
 
+    # Place the order
     size = LIQ_size
     order = await place_order(direction, symbol, size)
     if "orderId" not in order:
         await tel_client.send_message(TEL_CHAT, f"Failed to open position for {ticker}.")
         return
 
-    entry_price = float(order['avgFillPrice']) if 'avgFillPrice' in order else float(existing_position['entryPrice'].iloc[0])
+    entry_price = float(order['avgFillPrice']) if 'avgFillPrice' in order else None
+    if entry_price is None:
+        await tel_client.send_message(TEL_CHAT, "Failed to retrieve entry price.")
+        return
 
-    # Set stop and TP based on direction and entry price, with precision from last price
-    stop_adjustment = entry_price * (LIQ_stop_ratio / 100)  # 0.5% adjustment
+    # Calculate stop and TP prices
+    stop_adjustment = entry_price * (LIQ_stop_ratio / 100)
     tp_adjustment = entry_price * (LIQ_tp_ratio / 100)
     stop_price = round(entry_price - stop_adjustment if direction == "BUY" else entry_price + stop_adjustment, await get_tick_size(symbol))
     tp_price = round(entry_price + tp_adjustment if direction == "BUY" else entry_price - tp_adjustment, await get_tick_size(symbol))
 
-    # Set stop and take profit orders
-    await set_stop_order(symbol, stop_price, 'STOP_MARKET')
-    await set_stop_order(symbol, tp_price, 'TAKE_PROFIT_MARKET')
+    # Place stop and TP orders
+    stop_order_result = await set_stop_order(symbol, stop_price, 'STOP_MARKET')
+    tp_order_result = await set_stop_order(symbol, tp_price, 'TAKE_PROFIT_MARKET')
 
-    # Send a summary message to the first chat
-    await tel_client.send_message(
-        TEL_CHAT,
+    # Prepare the notification text
+    notification = (
         f"Opened {ticker} {direction} position:\n"
-        f"  - Stop: {stop_price}\n"
-        f"  - Take Profit: {tp_price}"
+        f"  - Entry Price: {entry_price}\n"
+        f"  - Stop: {stop_price} "
+        f"{'(Set successfully)' if 'orderId' in stop_order_result else '(Failed to set)'}\n"
+        f"  - Take Profit: {tp_price} "
+        f"{'(Set successfully)' if 'orderId' in tp_order_result else '(Failed to set)'}"
     )
+
+    # Send the single notification message
+    await tel_client.send_message(TEL_CHAT, notification)
 
 
 async def main():
