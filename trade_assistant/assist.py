@@ -360,16 +360,14 @@ async def handle_commands(event):
     else:
         await tel_client.send_message(TEL_CHAT, "Unsupported command")
 
-# Liq trakcing update
-toggle_bot = False
 @tel_client.on(events.NewMessage(chats=LIQ_TEL_CHAT))
 async def handle_liquidation_notifications(event):
-    if toggle_bot == False:
+    if LIQ_enabled == False:
         return
+        
     message_text = event.message.text
-
-    # Check if the message includes '#' for the ticker and mentions "Long" or "Short"
-    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text) or LIQ_enabled == False:
+    
+    if "#" not in message_text or not ("Long" in message_text or "Short" in message_text):
         return
 
     try:
@@ -380,20 +378,28 @@ async def handle_liquidation_notifications(event):
         await tel_client.send_message(TEL_CHAT, "Failed to parse liquidation message structure.")
         return
     
-    if direction == "BUY" and LIQ_long_enabled == False:
+    if direction == "BUY" and not LIQ_long_enabled:
         return
-    if direction == "SELL" and LIQ_short_enabled == False:
+    if direction == "SELL" and not LIQ_short_enabled:
         return
 
     symbol = f"{ticker}USDT"
+
+    # Check if a position already exists for the symbol
+    positions = await get_open_positions()
+    existing_position = positions[positions['symbol'] == symbol]
+    if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
+        # Abort if a position already exists for the symbol
+        await tel_client.send_message(TEL_CHAT, f"Position already exists for {symbol}. Aborting.")
+        return
+
     size = LIQ_size
     order = await place_order(direction, symbol, size)
     if "orderId" not in order:
         await tel_client.send_message(TEL_CHAT, f"Failed to open position for {ticker}.")
         return
 
-    positions = await get_open_positions()
-    entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
+    entry_price = float(order['avgFillPrice']) if 'avgFillPrice' in order else float(existing_position['entryPrice'].iloc[0])
 
     # Set stop and TP based on direction and entry price, with precision from last price
     stop_adjustment = entry_price * (LIQ_stop_ratio / 100)  # 0.5% adjustment
@@ -407,11 +413,12 @@ async def handle_liquidation_notifications(event):
 
     # Send a summary message to the first chat
     await tel_client.send_message(
-    TEL_CHAT,
-    f"Opened {ticker} {direction} position:\n"
-    f"  - Stop: {stop_price}\n"
-    f"  - Take Profit: {tp_price}"
+        TEL_CHAT,
+        f"Opened {ticker} {direction} position:\n"
+        f"  - Stop: {stop_price}\n"
+        f"  - Take Profit: {tp_price}"
     )
+
 
 async def main():
     await tel_client.start()
