@@ -313,7 +313,7 @@ async def handle_liquidation_notifications(event):
 
     # Get last price to determine decimal precision
     last_price = await get_last_price(symbol)
-    decimal_places = len(str(last_price).split('.')[1]) if '.' in str(last_price) else 0
+    decimal_places = len(str(last_price).split('.')[1]) - 1 if '.' in str(last_price) else 0
 
     # Set stop and TP based on direction and entry price, with precision from last price
     adjustment = entry_price * 0.005  # 0.5% adjustment
