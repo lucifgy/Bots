@@ -400,7 +400,7 @@ async def handle_liquidation_notifications(event):
         entry_price = float(existing_position['entryPrice'].iloc[0])
         await tel_client.send_message(
             TEL_CHAT,
-            f"Position already exists for {symbol} with an entry price of {entry_price}. Aborting."
+            f"Position already exists for {symbol}. Aborting."
         )
         return
 
@@ -412,10 +412,8 @@ async def handle_liquidation_notifications(event):
         return
 
     # Use the entry price from get_open_positions if an existing position exists or fallback to other logic
-    entry_price = float(existing_position['entryPrice'].iloc[0]) if not existing_position.empty else None
-    if entry_price is None:
-        await tel_client.send_message(TEL_CHAT, "Failed to retrieve entry price from positions data.")
-        return
+    positions = await get_open_positions()
+    entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
 
     # Calculate stop and TP prices
     stop_adjustment = entry_price * (LIQ_stop_ratio / 100)
