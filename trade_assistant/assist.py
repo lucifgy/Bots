@@ -307,8 +307,10 @@ async def set_liq_enable(msg):
         return "Done"
     elif msg[1].upper() == "SHORT":
         LIQ_short_enabled = True
+        return "Done"
     elif msg[1].upper() == "LONG":
         LIQ_long_enabled = True
+        return "Done"
 
 async def set_liq_disable(msg):
     global LIQ_enabled
@@ -319,8 +321,10 @@ async def set_liq_disable(msg):
         return "Done"
     elif msg[1].upper() == "SHORT":
         LIQ_short_enabled = False
+        return "Done"
     elif msg[1].upper() == "LONG":
         LIQ_long_enabled = False
+        return "Done"
 
 async def liq_settings(_):
     return f"Size: {LIQ_size}\nTP: {LIQ_tp_ratio}\nStop: {LIQ_stop_ratio}\nEnabled: {LIQ_enabled}\nShort Enabled: {LIQ_short_enabled}\nLong Enabled: {LIQ_long_enabled}"
@@ -391,8 +395,13 @@ async def handle_liquidation_notifications(event):
     # Check if a position already exists for the symbol
     positions = await get_open_positions()
     existing_position = positions[positions['symbol'] == symbol]
+
     if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
-        await tel_client.send_message(TEL_CHAT, f"Position already exists for {symbol}. Aborting.")
+        entry_price = float(existing_position['entryPrice'].iloc[0])
+        await tel_client.send_message(
+            TEL_CHAT,
+            f"Position already exists for {symbol} with an entry price of {entry_price}. Aborting."
+        )
         return
 
     # Place the order
@@ -402,9 +411,10 @@ async def handle_liquidation_notifications(event):
         await tel_client.send_message(TEL_CHAT, f"Failed to open position for {ticker}.")
         return
 
-    entry_price = float(order['avgFillPrice']) if 'avgFillPrice' in order else None
+    # Use the entry price from get_open_positions if an existing position exists or fallback to other logic
+    entry_price = float(existing_position['entryPrice'].iloc[0]) if not existing_position.empty else None
     if entry_price is None:
-        await tel_client.send_message(TEL_CHAT, "Failed to retrieve entry price.")
+        await tel_client.send_message(TEL_CHAT, "Failed to retrieve entry price from positions data.")
         return
 
     # Calculate stop and TP prices
