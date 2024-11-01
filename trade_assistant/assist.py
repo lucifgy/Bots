@@ -395,13 +395,7 @@ async def handle_liquidation_notifications(event):
     # Check if a position already exists for the symbol
     positions = await get_open_positions()
     existing_position = positions[positions['symbol'] == symbol]
-
     if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
-        entry_price = float(existing_position['entryPrice'].iloc[0])
-        await tel_client.send_message(
-            TEL_CHAT,
-            f"Position already exists for {symbol}. Aborting."
-        )
         return
 
     # Place the order
@@ -429,14 +423,16 @@ async def handle_liquidation_notifications(event):
     notification = (
         f"Opened {ticker} {direction} position:\n"
         f"  - Entry Price: {entry_price}\n"
-        f"  - Stop: {stop_price} "
-        f"{'(Set successfully)' if 'orderId' in stop_order_result else '(Failed to set)'}\n"
-        f"  - Take Profit: {tp_price} "
-        f"{'(Set successfully)' if 'orderId' in tp_order_result else '(Failed to set)'}"
+        f"  - Stop: {stop_price}\n"
+        f"  - Take Profit: {tp_price}"
     )
-
-    # Send the single notification message
     await tel_client.send_message(TEL_CHAT, notification)
+
+    if 'orderId' not in stop_order_result:
+        await tel_client.send_message(TEL_CHAT, f"Failed to set stop for {ticker}")
+
+    if 'orderId' not in tp_order_result:
+        await tel_client.send_message(TEL_CHAT, f"Failed to set tp for {ticker}")
 
 
 async def main():
