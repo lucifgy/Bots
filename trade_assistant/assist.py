@@ -397,7 +397,7 @@ async def handle_liquidation_notifications(event):
     existing_position = positions[positions['symbol'] == symbol]
     if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
         return
-    cancel_all_orders(ticker)
+    await cancel_all_orders(ticker)
     # Place the order
     size = LIQ_size
     order = await place_order(direction, symbol, size)
