@@ -6,30 +6,25 @@ from binance import AsyncClient
 import pandas as pd
 import asyncio
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger('telethon').setLevel(logging.WARNING)  # Suppress Telethon INFO messages
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Load environment variables
 TEL_API_ID = int(os.getenv("TEL_API_ID"))
 TEL_API_HASH = os.getenv("TEL_API_HASH")
 BI_API_KEY = os.getenv("BI_API_KEY")
 BI_API_SECRET = os.getenv("BI_API_SECRET")
-TEL_CHAT = os.getenv("TEL_CHAT")  # This should be the ID or username of the private chat
+TEL_CHAT = os.getenv("TEL_CHAT")
 # Liq tracking update
 LIQ_TEL_CHAT = int(os.getenv("LIQ_TEL_CHAT"))
-
 LIQ_stop_ratio = 0.5
 LIQ_tp_ratio = 0.5
-LIQ_size = 100
+LIQ_size = 75
 LIQ_enabled = False
-LIQ_short_enabled = False
-LIQ_long_enabled = False
+LIQ_short_enabled = True
+LIQ_long_enabled = True
 
-# Initialize Telegram and Binance clients asynchronously with device info
 tel_client = TelegramClient(
     'anon',
     TEL_API_ID,
@@ -352,7 +347,7 @@ COMMAND_HANDLERS = {
 @tel_client.on(events.NewMessage(chats=TEL_CHAT))
 async def handle_commands(event):
     if not event.message.text.startswith('/'):
-        return  # Ignore any message that doesn't start with '/'
+        return
 
     msg = event.message.text.split()
     command = msg[0][1:].lower()
@@ -391,35 +386,30 @@ async def handle_liquidation_notifications(event):
         return
 
     symbol = f"{ticker}USDT"
-
-    # Check if a position already exists for the symbol
+    
     positions = await get_open_positions()
     existing_position = positions[positions['symbol'] == symbol]
     if not existing_position.empty and float(existing_position['positionAmt'].iloc[0]) != 0:
         return
-    await cancel_all_orders(ticker)
-    # Place the order
+    await cancel_all_orders(symbol)
+    
     size = LIQ_size
     order = await place_order(direction, symbol, size)
     if "orderId" not in order:
         await tel_client.send_message(TEL_CHAT, f"Failed to open position for {ticker}.")
         return
 
-    # Use the entry price from get_open_positions if an existing position exists or fallback to other logic
     positions = await get_open_positions()
     entry_price = float(positions.loc[positions['symbol'] == symbol, 'entryPrice'].iloc[0])
 
-    # Calculate stop and TP prices
     stop_adjustment = entry_price * (LIQ_stop_ratio / 100)
     tp_adjustment = entry_price * (LIQ_tp_ratio / 100)
     stop_price = round(entry_price - stop_adjustment if direction == "BUY" else entry_price + stop_adjustment, await get_tick_size(symbol))
     tp_price = round(entry_price + tp_adjustment if direction == "BUY" else entry_price - tp_adjustment, await get_tick_size(symbol))
 
-    # Place stop and TP orders
     stop_order_result = await set_stop_order(symbol, stop_price, 'STOP_MARKET')
     tp_order_result = await set_stop_order(symbol, tp_price, 'TAKE_PROFIT_MARKET')
 
-    # Prepare the notification text
     notification = (
         f"Opened {ticker} {direction} position:\n"
         f"  - Entry Price: {entry_price}\n"
@@ -433,7 +423,6 @@ async def handle_liquidation_notifications(event):
 
     if 'orderId' not in tp_order_result:
         await tel_client.send_message(TEL_CHAT, f"Failed to set tp for {ticker}")
-
 
 async def main():
     await tel_client.start()
